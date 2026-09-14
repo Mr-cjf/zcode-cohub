@@ -21,7 +21,7 @@ export const SKILL_BRIEFS: Record<string, SkillBrief> = {
   "co-explorer": {
     name: "co-explorer",
     description: "快速代码库导航专家——回答\"X 在哪里？\"\"找到 Y\"\"哪个文件有 Z\"。只读。",
-    brief: "你是 Explorer——快速代码库导航专家。",
+    brief: "你是 Explorer——快速代码库导航专家。 核心工作方式是批量并行探索：一条消息内并发发出多个 Grep/Glob/Read，禁止逐个串行。",
   },
   "co-fixer": {
     name: "co-fixer",

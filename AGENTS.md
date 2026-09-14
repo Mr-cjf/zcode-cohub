@@ -8,9 +8,9 @@ ZCode 中文智能体编排插件。将 `oh-my-opencode-cohub` 的 12 代理编�
 |-------|------|------|
 | `orchestrator` | 纯调度——分析需求→委派→审核 | 只调度 |
 | `planner` | 方案制定——综合需求+信息+规范输出任务分解 | 只读+Web |
-| `oracle` | 架构审查 / 代码审查 / YAGNI 简化 / 复杂调试 | 只读+Web |
+| `oracle` | 架构审查 / 代码审查 / YAGNI 简化 / 复杂调试 | 只读+Web（含 Bash 只读命令） |
 | `librarian` | 官方文档 / API / GitHub 研究 | 只读+Web |
-| `explorer` | 代码库搜索定位——grep / glob / AST | 只读 |
+| `explorer` | 代码库搜索定位——grep / glob / AST | 只读（含 Bash 只读命令） |
 | `designer` | UI/UX 设计实现 / 视觉润色 / 响应式布局 | 读写 |
 | `fixer` | 代码修改 / 构建 / 测试执行 | 读写+Bash |
 | `observer` | 图片 / PDF / 截图视觉分析 | 只读 |
@@ -116,4 +116,4 @@ bun scripts/install.ts   # 开发模式加 --dev
 | 在 `agents-template/` 里硬编码 provider UUID 作为默认 model | 不同机器 provider ID 不同必崩 | 默认一律 `model: inherit`，由用户在设置界面选 |
 | 忘记 `npm run build` | Hook 脚本不更新 | 修改 `src/hooks/` 后运行 `build:hooks` |
 | 用 node 直接跑 install/脚本 | 脚本是 TypeScript，node 无法执行 | 统一用 bun |
-| 认为子代理能并行执行全部工具调用 | Bash/Edit/Write/MCP 被平台按安全设计串行调度（只读白名单 Read/Grep/Glob/WebFetch/WebSearch 才同组并行），插件只能通过提示词引导批量提交 | 并行纪律文本的权威源是 11 个可 spawn 角色（orchestrator 除外）的 `skills/*/SKILL.md` 中统一的 `## 并行工具纪律` 小节（经 generate-agents 逐字进入角色 agent 系统提示），另有 `src/tools/delegate.ts` 的 `PARALLEL_DISCIPLINE` 常量注入任务提示层与降级路径；改完须 `npm run build` 并重装 |
+| 认为子代理能并行执行全部工具调用 | Bash/Edit/Write/MCP 被平台按安全设计串行调度（只读白名单 Read/Grep/Glob/WebFetch/WebSearch 才同组并行），插件只能通过提示词引导批量提交 | 并行纪律文本的权威源是 11 个可 spawn 角色（orchestrator 除外）的 `skills/*/SKILL.md` 中统一的 `## 并行工具纪律（强制）` 小节（经 generate-agents 逐字进入角色 agent 系统提示），另有 `src/tools/delegate.ts` 的 `PARALLEL_DISCIPLINE` 常量注入任务提示层与降级路径；改完须 `npm run build` 并重装 |

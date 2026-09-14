@@ -47,13 +47,14 @@ const MODEL = "inherit";
 const MAX_TURNS = 12;
 
 // Per-role tool whitelist (least privilege).
+// explorer/oracle 的 Bash 仅限非破坏性只读命令，由角色提示词约束。
 const TOOL_WHITELIST: Record<string, string[]> = {
-  "co-explorer": ["Read", "Grep", "Glob"],
+  "co-explorer": ["Read", "Grep", "Glob", "Bash"],
   "co-observer": ["Read", "Glob"],
   "co-rule-user": ["Read", "Grep", "Glob"],
   "co-rule-project": ["Read", "Grep", "Glob"],
   "co-rule-app": ["Read", "Grep", "Glob"],
-  "co-oracle": ["Read", "Grep", "Glob", "WebFetch", "WebSearch"],
+  "co-oracle": ["Read", "Grep", "Glob", "WebFetch", "WebSearch", "Bash"],
   "co-planner": ["Read", "Grep", "Glob", "WebFetch", "WebSearch"],
   "co-librarian": ["Read", "Grep", "Glob", "WebFetch", "WebSearch"],
   "co-designer": ["Read", "Edit", "Write", "Glob", "Grep"],
