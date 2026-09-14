@@ -1,0 +1,34 @@
+{
+  "name": "zcode-cohub",
+  "version": "0.1.0",
+  "description": "ZCode Chinese agent orchestration plugin CoHub — 12 specialized agent skills + delegate/council tools + Chinese language injection",
+  "type": "module",
+  "main": "dist/src/index.js",
+  "files": [
+    "dist/",
+    "skills/",
+    "hooks/",
+    ".zcode-plugin/"
+  ],
+  "scripts": {
+    "build": "bun run scripts/generate-skills.ts && bun run scripts/generate-agents.ts && bun build src/index.ts --outdir dist/src --target node --format esm && tsc --emitDeclarationOnly",
+    "build:hooks": "bun build src/hooks/chinese-inject.ts src/hooks/job-board.ts src/hooks/orchestrate-remind.ts --outdir dist/hooks --target node --format esm",
+    "test": "bun test ./src",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.0"
+  },
+  "license": "MIT",
+  "author": {
+    "name": "cjf"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Mr-cjf/zcode-cohub"
+  }
+}

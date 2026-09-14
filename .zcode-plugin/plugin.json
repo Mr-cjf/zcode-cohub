@@ -1,0 +1,22 @@
+{
+  "name": "zcode-cohub",
+  "version": "0.1.0",
+  "description": "ZCode Chinese agent orchestration plugin — 12 specialized skills + delegate/council MCP tools",
+  "author": { "name": "cjf" },
+  "license": "MIT",
+  "skills": "skills",
+  "hooks": "hooks",
+  "mcpServers": {
+    "zcode-cohub": {
+      "command": "node",
+      "args": [
+        "${ZCODE_PLUGIN_ROOT}/dist/src/index.js"
+      ],
+      "env": {
+        "ZCODE_PLUGIN_ID": "zcode-cohub@local",
+        "ZCODE_PLUGIN_ROOT": "${ZCODE_PLUGIN_ROOT}",
+        "ZCODE_PROJECT_DIR": "${ZCODE_PROJECT_DIR}"
+      }
+    }
+  }
+}
