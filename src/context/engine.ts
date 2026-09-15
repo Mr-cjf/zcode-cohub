@@ -1,6 +1,10 @@
 /**
  * Context Engine — shared context between parent and child agent sessions.
  *
+ * 待激活说明：fillContext() 依赖调用方传入 context_messages，但当前 orchestrator 委派流程
+ * 从不传该参数，因此本文件及同目录 extractor.ts / formatter.ts 的提取与格式化逻辑在运行时
+ * 不可达。激活方式：在 orchestrator 的委派流程中传入消息上下文。
+ *
  * Since ZCode doesn't expose a session-level message API like OpenCode's SDK,
  * this engine operates in an in-memory pass-through mode:
  * - Orchestrator provides relevant context directly in the prompt

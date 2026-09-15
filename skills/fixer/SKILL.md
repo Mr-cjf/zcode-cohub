@@ -34,7 +34,7 @@ description: 快速实现专家——高效执行代码变更。读写+Bash。�
 
 **违规样例（禁止）：** `Grep 关键词1` → 等 → `Grep 关键词2` → 等 → `Read 文件A` → 等 → `Read 文件B`（4 轮串行；正确做法：1 轮并行发 4 个）
 
-平台只对只读工具（Read/Grep/Glob/WebFetch/WebSearch）做同组并行；Bash/Edit/Write 按安全设计串行调度，同轮提交仍可减少等待——这是平台设计，不可改变。
+平台并行白名单共 9 个工具（Read/Grep/Glob/WebFetch/WebSearch/TodoRead/TodoWrite/AskUserQuestion/Skill），这些工具同组并发执行；其余工具——Bash/Edit/Write、全部 MCP 工具、Agent spawn——一律串行调度，同轮提交仍可减少等待（Agent 串行派发，但子代理启动后在各自会话中独立并行运行）。这是平台设计，不可改变。
 
 **约束**:
 - 不进行外部研究（不用 websearch、context7、gh_grep）

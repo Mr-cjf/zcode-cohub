@@ -11,12 +11,36 @@ import * as path from "node:path";
 
 // --- Storage ---
 
-/** 状态文件路径 — 与 src/hooks/job-board.ts 读取路径严格一致 */
-const zcodeHome = process.env.ZCODE_HOME
-  ? path.resolve(process.env.ZCODE_HOME)
-  : path.join(os.homedir(), ".zcode");
-const stateDir = path.join(zcodeHome, "cli", "plugins", "data", "zcode-cohub@local");
-const trackerFile = path.join(stateDir, "tracker-state.json");
+/** 状态目录路径 */
+function getStateDir(): string {
+  const zcodeHome = process.env.ZCODE_HOME
+    ? path.resolve(process.env.ZCODE_HOME)
+    : path.join(os.homedir(), ".zcode");
+  return path.join(zcodeHome, "cli", "plugins", "data", "zcode-cohub@local");
+}
+
+/** 状态文件路径 */
+function getTrackerFilePath(): string {
+  return path.join(getStateDir(), "tracker-state.json");
+}
+
+/** 原子写：先写临时文件再 rename，避免读端拿到撕裂的 JSON */
+function writeFileAtomic(filePath: string, data: string): void {
+  const tmpPath = filePath + ".tmp";
+  const dir = path.dirname(filePath);
+  fs.mkdirSync(dir, { recursive: true });
+  try {
+    fs.writeFileSync(tmpPath, data, "utf-8");
+    fs.renameSync(tmpPath, filePath);
+  } catch (err) {
+    // rename 失败时尽力清理临时文件
+    try { fs.unlinkSync(tmpPath); } catch { /* ignore */ }
+    throw err;
+  } finally {
+    // 确保成功路径下 .tmp 已被 rename 消耗、失败路径下也已尽力删除
+    try { if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); } catch { /* ignore */ }
+  }
+}
 
 /**
  * 非终态任务（pending/running）的过期阈值：30 分钟。
@@ -41,6 +65,8 @@ export interface JobRecord {
   completedAt?: number;
   result?: string;
   error?: string;
+  /** 工具调用唯一标识，用于精确匹配 PreToolUse/PostToolUse 配对（平台提供时有效） */
+  hookCallId?: string;
 }
 
 export interface TaskStats {
@@ -60,6 +86,40 @@ export class TaskTracker {
 
   constructor(pluginRoot: string) {
     this.pluginRoot = pluginRoot;
+    this.load();
+  }
+
+  /**
+   * 从持久化文件恢复内存状态。
+   * 向后兼容旧格式（无 aliasCounters 字段）。
+   */
+  private load(): void {
+    const filePath = getTrackerFilePath();
+    try {
+      if (!fs.existsSync(filePath)) return;
+      const raw = fs.readFileSync(filePath, "utf-8");
+      const state = JSON.parse(raw);
+      // 恢复 jobs
+      if (Array.isArray(state.jobs)) {
+        for (const job of state.jobs) {
+          this.jobs.set(job.taskId, job);
+        }
+      }
+      // 恢复 aliasCounters（旧文件无此字段时从已有 job 推导）
+      if (state.aliasCounters && typeof state.aliasCounters === "object") {
+        for (const [key, value] of Object.entries(state.aliasCounters)) {
+          this.aliasCounter.set(key, value as number);
+        }
+      } else {
+        // 旧格式：从已有 jobs 的 alias 字段推导
+        const derived = deriveAliasCountersFromJobs([...this.jobs.values()]);
+        for (const [key, value] of derived) {
+          this.aliasCounter.set(key, value);
+        }
+      }
+    } catch {
+      // 文件损坏等静默忽略，保持空初始状态
+    }
   }
 
   /**
@@ -303,11 +363,18 @@ export class TaskTracker {
   private persist(): void {
     try {
       this.sweepStaleJobs(STALE_TASK_MS);
-      const state = { jobs: [...this.jobs.values()], updatedAt: Date.now() };
-      fs.mkdirSync(stateDir, { recursive: true });
-      fs.writeFileSync(trackerFile, JSON.stringify(state, null, 2), "utf-8");
+      const aliasCounters: Record<string, number> = {};
+      for (const [key, value] of this.aliasCounter) {
+        aliasCounters[key] = value;
+      }
+      const state = {
+        jobs: [...this.jobs.values()],
+        aliasCounters,
+        updatedAt: Date.now(),
+      };
+      writeFileAtomic(getTrackerFilePath(), JSON.stringify(state, null, 2));
     } catch {
-      // ignore
+      // ignore — 面板是辅助功能，磁盘问题不得影响主流程
     }
   }
 
@@ -317,4 +384,201 @@ export class TaskTracker {
     this.aliasCounter.set(short, count);
     return `${short}-${count}`;
   }
+}
+
+/**
+ * 从已有 job 记录推导每个 skill 短名的最大别名计数。
+ * 别名格式形如 `<skill短名>-<数字>`（如 `explorer-1`、`rule-user-3`），
+ * skill 短名可能含连字符（如 `rule-user`），因此从最后一个连字符处切分数字后缀。
+ * 无法匹配 alias 格式的记录跳过。
+ */
+function deriveAliasCountersFromJobs(jobs: JobRecord[]): Map<string, number> {
+  const counters = new Map<string, number>();
+  for (const job of jobs) {
+    const alias = job.alias;
+    if (!alias) continue;
+    const lastHyphenIdx = alias.lastIndexOf("-");
+    if (lastHyphenIdx === -1 || lastHyphenIdx === alias.length - 1) continue;
+    const numStr = alias.slice(lastHyphenIdx + 1);
+    const num = parseInt(numStr, 10);
+    if (isNaN(num)) continue;
+    const short = alias.slice(0, lastHyphenIdx);
+    const current = counters.get(short) ?? 0;
+    if (num > current) counters.set(short, num);
+  }
+  return counters;
+}
+
+/**
+ * 找到指定 skill 中 status 为 running 的任务，标记为 failed，写盘并返回。
+ * 配对策略与 completeOldestBySkill 一致：先 hookCallId 精确匹配，再 FIFO 回退。
+ * 找不到返回 null。
+ */
+export function failTaskBySkill(
+  state: TrackerState,
+  skill: string,
+  opts?: { hookCallId?: string; error?: string },
+): JobRecord | null {
+  const hookCallId = opts?.hookCallId;
+  // 优先：按 hookCallId 精确匹配
+  if (hookCallId) {
+    const exact = state.jobs.find(
+      (j) => j.status === "running" && j.skill === skill && j.hookCallId === hookCallId,
+    );
+    if (exact) {
+      exact.status = "failed";
+      exact.completedAt = Date.now();
+      if (opts?.error) exact.error = opts.error.slice(0, 200);
+      state.updatedAt = Date.now();
+      writeTrackerState(state);
+      return exact;
+    }
+  }
+
+  // 回退：按最早 startedAt 配对（FIFO）
+  let oldest: JobRecord | null = null;
+  for (const job of state.jobs) {
+    if (job.status === "running" && job.skill === skill) {
+      if (!oldest || job.startedAt < oldest.startedAt) {
+        oldest = job;
+      }
+    }
+  }
+  if (!oldest) return null;
+
+  oldest.status = "failed";
+  oldest.completedAt = Date.now();
+  if (opts?.error) oldest.error = opts.error.slice(0, 200);
+  state.updatedAt = Date.now();
+  writeTrackerState(state);
+  return oldest;
+}
+
+// ============================================================
+// 纯函数 API（供 hook 脚本等独立进程复用，不依赖 TaskTracker 实例）
+// 路径与状态格式与 TaskTracker 内部实现严格一致。
+// ============================================================
+
+/** 完整状态文件结构（含持久化的 aliasCounters） */
+export interface TrackerState {
+  jobs: JobRecord[];
+  aliasCounters?: Record<string, number>;
+  updatedAt: number;
+}
+
+/**
+ * 读取 tracker 状态文件。
+ * 文件不存在或损坏时返回空状态。
+ * 向后兼容：aliasCounters 缺失时从已有 job 的 alias 字段推导计数起点。
+ */
+export function readTrackerState(): TrackerState {
+  try {
+    const filePath = getTrackerFilePath();
+    if (!fs.existsSync(filePath)) {
+      return { jobs: [], updatedAt: Date.now() };
+    }
+    const raw = fs.readFileSync(filePath, "utf-8");
+    const parsed = JSON.parse(raw);
+    const jobs = Array.isArray(parsed.jobs) ? parsed.jobs : [];
+    let aliasCounters: Record<string, number> | undefined = parsed.aliasCounters ?? undefined;
+    // 旧文件无 aliasCounters 时从 jobs 推导
+    if (!aliasCounters) {
+      const derived = deriveAliasCountersFromJobs(jobs);
+      aliasCounters = {};
+      for (const [key, value] of derived) {
+        aliasCounters[key] = value;
+      }
+    }
+    return {
+      jobs,
+      aliasCounters,
+      updatedAt: parsed.updatedAt ?? Date.now(),
+    };
+  } catch {
+    return { jobs: [], updatedAt: Date.now() };
+  }
+}
+
+/**
+ * 原子写 tracker 状态文件。
+ */
+export function writeTrackerState(state: TrackerState): void {
+  writeFileAtomic(getTrackerFilePath(), JSON.stringify(state, null, 2));
+}
+
+/**
+ * 创建一个 status: "running" 的任务记录，生成持久化别名，追加到 state.jobs，写盘并返回。
+ * 若提供了 hookCallId，存入任务记录供精确配对使用。
+ */
+export function registerExternalJob(
+  state: TrackerState,
+  opts: { skill: string; prompt: string; hookCallId?: string },
+): JobRecord {
+  const counters = state.aliasCounters ?? {};
+  const short = opts.skill.replace("co-", "");
+  const count = (counters[short] || 0) + 1;
+  counters[short] = count;
+
+  const job: JobRecord = {
+    taskId: `hook-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    alias: `${short}-${count}`,
+    skill: opts.skill,
+    prompt: opts.prompt.slice(0, 200),
+    status: "running",
+    startedAt: Date.now(),
+    hookCallId: opts.hookCallId,
+  };
+
+  state.jobs.push(job);
+  state.aliasCounters = counters;
+  state.updatedAt = Date.now();
+  writeTrackerState(state);
+  return job;
+}
+
+/**
+ * 找到指定 skill 中 status 为 running 的任务，标记为 completed，写盘并返回。
+ *
+ * 配对优先级：
+ * 1. 提供了 hookCallId 且能在 running 任务中精确匹配 → 完成那一条。
+ * 2. 回退：按 startedAt 最早（FIFO）配对。
+ *
+ * 回退场景的已知局限：当同一 skill 的多个任务并发且完成顺序乱序时，
+ * 耗时数字可能与真实任务不对应，但状态数量始终正确（不会产生僵尸任务）。
+ */
+export function completeOldestBySkill(
+  state: TrackerState,
+  skill: string,
+  hookCallId?: string,
+): JobRecord | null {
+  // 优先：按 hookCallId 精确匹配
+  if (hookCallId) {
+    const exact = state.jobs.find(
+      (j) => j.status === "running" && j.skill === skill && j.hookCallId === hookCallId,
+    );
+    if (exact) {
+      exact.status = "completed";
+      exact.completedAt = Date.now();
+      state.updatedAt = Date.now();
+      writeTrackerState(state);
+      return exact;
+    }
+  }
+
+  // 回退：按最早 startedAt 配对（FIFO）
+  let oldest: JobRecord | null = null;
+  for (const job of state.jobs) {
+    if (job.status === "running" && job.skill === skill) {
+      if (!oldest || job.startedAt < oldest.startedAt) {
+        oldest = job;
+      }
+    }
+  }
+  if (!oldest) return null;
+
+  oldest.status = "completed";
+  oldest.completedAt = Date.now();
+  state.updatedAt = Date.now();
+  writeTrackerState(state);
+  return oldest;
 }

@@ -8,7 +8,7 @@
  * 输出格式：JSON，含 additionalContext 字段。
  */
 
-const REMINDER = `[CoHub 编排规则] 本请求必须先调用 co-orchestrator 技能进行编排，禁止直接处理；委派时先用 co_delegate 取得 subagent_type，再用 Agent 工具 spawn 专用角色 agent（如 co-explorer）；若编排流程已在进行中则继续执行。子代理忽略此规则。`;
+const REMINDER = `[CoHub 编排规则] 本请求必须先调用 co-orchestrator 技能进行编排，禁止直接处理；委派时直接用 Agent 工具 spawn 专用角色 agent（如 co-explorer，subagent_type 用角色裸名）；仅在需要注入父会话上下文时才先调 co_delegate；若编排流程已在进行中则继续执行。子代理忽略此规则。`;
 
 process.stdout.write(JSON.stringify({ additionalContext: REMINDER }));
 process.exit(0);

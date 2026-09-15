@@ -28,12 +28,12 @@ zcode-cohub/
 ├── .zcode-plugin/plugin.json    # ZCode 插件清单
 ├── skills/                       # 12 个 ZCode skills（提示词唯一源文件）
 ├── agents-template/             # 11 个角色 agent 模板（生成物，install 铺设到 ~/.zcode/agents/）
-├── hooks/hooks.json             # Hook 注册（中文注入 / Job Board / 编排提醒）
+├── hooks/hooks.json             # Hook 注册（SessionStart / UserPromptSubmit / PreToolUse / PostToolUse）
 ├── src/                         # MCP Server 源码
 │   ├── index.ts                 # MCP Server 入口
 │   ├── tools/                   # delegate / council / job-control
 │   ├── context/                 # 上下文共享引擎
-│   ├── hooks/                   # Hook 脚本
+│   ├── hooks/                   # Hook 脚本（chinese-inject / job-board / orchestrate-remind / agent-tracker）
 │   └── utils/                   # 工具函数
 └── scripts/                     # generate-skills（技能生成）/ generate-agents（角色 agent 模板生成）/ install（ZCode 注册 + 角色 agent 铺设）
 ```
@@ -42,7 +42,7 @@ zcode-cohub/
 
 | 工具 | 功能 |
 |------|------|
-| `co_delegate` | 提示词装配器——匹配 skill → 登记任务/上下文 → 返回 `subagent_type` / `agent_prompt` / `inline_prompt`（**不 spawn**，由主代理用 Agent 工具两步协议 spawn） |
+| `co_delegate` | 提示词装配器——匹配 skill → 登记任务/上下文 → 返回 `subagent_type` / `agent_prompt` / `inline_prompt`（**不 spawn**）。**可选路径**：orchestrator 默认直接 spawn Agent（子代理角色名 `co-*` 已在技能清单，系统提示自带角色定义与并行纪律），省去两步协议中一次 LLM 往返。`co_delegate` 仅在需要上下文注入（`context_messages`）等场景使用。任务追踪已由 `PreToolUse` / `PostToolUse` hook 自动完成，不再依赖 `co_delegate` 登记 |
 | `co_council` | 多模型并行共识 |
 | `co_close_job` | 取消作业 |
 
@@ -65,13 +65,15 @@ zcode-cohub/
 
 ```bash
 npm run build       # generate-skills → generate-agents → 打包 src/index.ts → tsc 仅生成 .d.ts
-npm run build:hooks # 单独构建 hook 脚本（chinese-inject + job-board + orchestrate-remind → dist/hooks）
+npm run build:hooks  # 单独构建 hook 脚本（chinese-inject + job-board + orchestrate-remind + agent-tracker → dist/hooks）
 npm run test        # 运行测试（bun test ./src）
 ```
 
 无独立 lint/typecheck 脚本，类型检查由 build 末尾的 `tsc --emitDeclarationOnly` 承担。
 
 `bun scripts/generate-agents.ts --check` 做漂移检测：比对 `agents-template/` 与 `skills/*/SKILL.md`，不一致（缺模板 / 内容漂移 / 多余模板）时退出码为 1。
+
+> **生效条件**：修改 `skills/*/SKILL.md` 或 `src/hooks/*.ts` 后，需重新运行 `bun scripts/install.ts` 并**新开会话**，ZCode 才会重新加载插件缓存中的 skills 与 hooks。仅在开发目录执行构建而不安装，改动不会生效。
 
 ## 安装
 
@@ -103,9 +105,10 @@ bun scripts/install.ts   # 开发模式加 --dev
 | 委员会工具 | `src/tools/council.ts` |
 | 作业控制工具 | `src/tools/job-control.ts` |
 | 上下文引擎 | `src/context/`（engine / extractor / formatter / strategy / types） |
-| 任务追踪 | `src/tracker.ts` |
+| 任务追踪 | `src/tracker.ts`（状态文件读写，由 hook 驱动） |
 | 工具函数 | `src/utils/log.ts` |
-| Hook 脚本 | `src/hooks/`（chinese-inject / job-board / orchestrate-remind），经 `hooks/hooks.json` 注册 |
+| Hook 脚本 | `src/hooks/`（chinese-inject / job-board / orchestrate-remind / agent-tracker），经 `hooks/hooks.json`（SessionStart / UserPromptSubmit / PreToolUse / PostToolUse）注册 |
+| Agent 追踪 hook | `src/hooks/agent-tracker.ts`——`PreToolUse` 拦截 Agent spawn 时自动登记任务（status=running），`PostToolUse` 在子代理结束时标记 completed；确保 job-board 面板不遗漏 |
 
 ## 常见陷阱
 
@@ -116,4 +119,5 @@ bun scripts/install.ts   # 开发模式加 --dev
 | 在 `agents-template/` 里硬编码 provider UUID 作为默认 model | 不同机器 provider ID 不同必崩 | 默认一律 `model: inherit`，由用户在设置界面选 |
 | 忘记 `npm run build` | Hook 脚本不更新 | 修改 `src/hooks/` 后运行 `build:hooks` |
 | 用 node 直接跑 install/脚本 | 脚本是 TypeScript，node 无法执行 | 统一用 bun |
-| 认为子代理能并行执行全部工具调用 | Bash/Edit/Write/MCP 被平台按安全设计串行调度（只读白名单 Read/Grep/Glob/WebFetch/WebSearch 才同组并行），插件只能通过提示词引导批量提交 | 并行纪律文本的权威源是 11 个可 spawn 角色（orchestrator 除外）的 `skills/*/SKILL.md` 中统一的 `## 并行工具纪律（强制）` 小节（经 generate-agents 逐字进入角色 agent 系统提示），另有 `src/tools/delegate.ts` 的 `PARALLEL_DISCIPLINE` 常量注入任务提示层与降级路径；改完须 `npm run build` 并重装 |
+| 认为子代理能并行执行全部工具调用 | 客户端白名单精确为 9 个工具（Read、Glob、Grep、WebSearch、WebFetch、TodoRead、TodoWrite、AskUserQuestion、Skill）才同组并行；Bash、Edit、Write、ApplyPatch、全部 `mcp__*` 工具和 **Agent** 一律串行。Agent spawn 在同一轮串行派发，但子代理启动后在各自会话中独立并行运行（Wave 内并行仍然成立）。并发上限 `maxConcurrency` 默认 10，可由 `~/.zcode/cli/config.json` 的 `toolConcurrency.maxConcurrency` 或环境变量 `MAX_TOOL_CONCURRENCY` 调整。插件只能通过提示词引导批量提交 | 并行纪律文本的权威源是 11 个可 spawn 角色（orchestrator 除外）的 `skills/*/SKILL.md` 中统一的 `## 并行工具纪律（强制）` 小节（经 generate-agents 逐字进入角色 agent 系统提示），另有 `src/tools/delegate.ts` 的 `PARALLEL_DISCIPLINE` 常量注入任务提示层与降级路径；改完须 `npm run build` 并重装 |
+| 新增任务类型忘记提供完成态写入路径 | `src/tracker.ts` 的 `updateAfterTask()` 曾长期零调用 → 任务状态永远卡在 `running` → job-board 面板出现耗时无限增长的僵尸任务 | 新增任何需要登记的任务类型时必须确保 **PostToolUse hook**（`src/hooks/agent-tracker.ts`）或其他回调路径能在任务结束时写入 `completed` 状态。仅登记不完成的 hook 等同于不登记 |

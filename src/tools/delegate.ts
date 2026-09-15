@@ -4,9 +4,8 @@
  * This is the core delegation primitive. It:
  * 1. Validates the skill name
  * 2. Loads the skill's role brief from the generated skill briefs
- * 3. Registers the task in TaskTracker
- * 4. Registers context in ContextEngine
- * 5. Returns `subagent_type` + prompts for ZCode subagent execution
+ * 3. Registers context in ContextEngine (任务登记已由 agent-tracker hook 统一承担)
+ * 4. Returns `subagent_type` + prompts for ZCode subagent execution
  *
  * Since ZCode's MCP tools run inside the agent loop, the actual subagent spawn
  * happens when the caller spawns the specialized subagent named by
@@ -60,18 +59,24 @@ const PARALLEL_DISCIPLINE = [
   ``,
   `**违规样例（禁止）：** \`Grep 关键词1\` → 等 → \`Grep 关键词2\` → 等 → \`Read 文件A\` → 等 → \`Read 文件B\`（4 轮串行；正确做法：1 轮并行发 4 个）`,
   ``,
-  `平台只对只读工具（Read/Grep/Glob/WebFetch/WebSearch）做同组并行；Bash/Edit/Write 按安全设计串行调度，同轮提交仍可减少等待——这是平台设计，不可改变。`,
+  `平台并行白名单共 9 个工具（Read/Grep/Glob/WebFetch/WebSearch/TodoRead/TodoWrite/AskUserQuestion/Skill），这些工具同组并发执行；其余工具——Bash/Edit/Write、全部 MCP 工具、Agent spawn——一律串行调度，同轮提交仍可减少等待（Agent 串行派发，但子代理启动后在各自会话中独立并行运行）。这是平台设计，不可改变。`,
 ].join("\n");
 
 export interface DelegateInput {
   skill: string;
   prompt: string;
   task_id?: string;
+  /** @dead 无调用方传该参数（orchestrator 委派流程从不传），运行时不可达；保留为待激活。 */
   context_messages?: string;
 }
 
 export interface DelegateResult {
   success: boolean;
+  /**
+   * 本次委派的内部标识 ID，格式同原有追踪 ID（cohub-{skill}-{timestamp}）。
+   * 注意：该 ID 不再会通过 tracker 注册到任务追踪系统；任务登记已由 agent-tracker hook 统一承担。
+   * 此字段保留以维持工具返回结构兼容，调用方不应依赖其参与追踪状态管理。
+   */
   task_id: string;
   skill: string;
   /** Bare subagent name to spawn with the Agent tool, e.g. "co-explorer". */
@@ -112,6 +117,7 @@ export function createDelegateTool() {
         },
         context_messages: {
           type: "string",
+          // @dead 无调用方传入，ContextEngine 注入路径运行时不可达；保留为待激活。
           description: "可选：父会话的消息上下文（JSON 字符串），用于上下文共享。",
         },
       },
@@ -133,7 +139,9 @@ export async function delegateHandler(
   },
 ): Promise<DelegateResult> {
   const { skill, prompt, task_id, context_messages } = input;
-  const { tracker, contextEngine, resolveStrategy } = services;
+  const { contextEngine, resolveStrategy } = services;
+  // tracker 保留未用：任务登记已统一由 agent-tracker hook 承担，co_delegate 不再直接调用 tracker。
+  void (services as { tracker: unknown }).tracker;
 
   // Validate skill
   if (!VALID_SKILLS.includes(skill)) {
@@ -152,12 +160,8 @@ export async function delegateHandler(
   const generatedId =
     task_id || `cohub-${skill}-${Date.now().toString(36)}`;
 
-  // Register in tracker
-  tracker.registerBeforeTask({
-    taskId: generatedId,
-    skill,
-    prompt,
-  });
+  // 任务登记已统一由 agent-tracker hook 承担，co_delegate 不再调用 tracker。
+  // 此处的 generatedId 仅用于上下文引擎注册与提示词拼装。
 
   // Register context
   const strategy = resolveStrategy(skill);

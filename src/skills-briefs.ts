@@ -45,7 +45,7 @@ export const SKILL_BRIEFS: Record<string, SkillBrief> = {
   },
   "co-orchestrator": {
     name: "co-orchestrator",
-    description: "纯调度者——分析需求→委派信息收集→委派 co-planner 制定方案→审核→调度执行→委派验证。所有用户请求（无论简单还是复杂）都必须先触发本技能进行编排，禁止跳过。绝不亲自操作，全部委派。委派走两步协议：先用 co_delegate 工具生成子代理提示词，再用 Agent 工具 spawn 子代理；使用 todo_write 管理任务。",
+    description: "纯调度者——分析需求→委派信息收集→委派 co-planner 制定方案→审核→调度执行→委派验证。所有用户请求（无论简单还是复杂）都必须先触发本技能进行编排，禁止跳过。绝不亲自操作，全部委派。委派默认直连 spawn 子代理（subagent_type 用角色裸名），无需先调 co_delegate；仅需注入父会话上下文时才使用 co_delegate 装配提示词；使用 todo_write 管理任务。",
     brief: "<角色>",
   },
   "co-planner": {
