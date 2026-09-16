@@ -50,6 +50,16 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "matcher": "Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${ZCODE_PLUGIN_ROOT}/dist/hooks/grep-counter.js\"",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "PostToolUseFailure": [

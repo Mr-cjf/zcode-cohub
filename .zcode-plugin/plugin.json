@@ -16,7 +16,8 @@
         "ZCODE_PLUGIN_ID": "zcode-cohub@local",
         "ZCODE_PLUGIN_ROOT": "${ZCODE_PLUGIN_ROOT}",
         "ZCODE_PROJECT_DIR": "${ZCODE_PROJECT_DIR}"
-      }
+      },
+      "timeoutMs": 180000
     }
   }
 }

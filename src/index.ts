@@ -28,6 +28,11 @@ import {
   closeJobHandler,
   type CloseJobInput,
 } from "./tools/job-control.js";
+import {
+  createScanTool,
+  scanHandler,
+  type ScanInput,
+} from "./tools/scan.js";
 import { TaskTracker } from "./tracker.js";
 import { ContextEngine } from "./context/engine.js";
 import { resolveStrategy } from "./context/strategy.js";
@@ -43,8 +48,9 @@ const contextEngine = new ContextEngine();
 const delegateDef = createDelegateTool();
 const councilDef = createCouncilTool();
 const closeJobDef = createCloseJobTool();
+const scanDef = createScanTool();
 
-const toolDefs = [delegateDef, councilDef, closeJobDef];
+const toolDefs = [delegateDef, councilDef, closeJobDef, scanDef];
 
 // --- MCP Server ---
 
@@ -95,6 +101,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
     case "co_close_job": {
       const result = await closeJobHandler(input as unknown as CloseJobInput, { tracker });
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+      };
+    }
+
+    case "co_scan": {
+      const result = await scanHandler(input as unknown as ScanInput, {
+        projectDir,
+      });
       return {
         content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
       };

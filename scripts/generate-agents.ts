@@ -46,33 +46,36 @@ const MODEL = "inherit";
 // 覆盖 ZCode subagent 默认 maxTurns=4——留给角色「并行读 → 批量改 → 验证 → 报告」的轮次余量。
 const MAX_TURNS = 12;
 
-// Per-role tool whitelist (least privilege).
-// explorer/oracle 的 Bash 仅限非破坏性只读命令，由角色提示词约束。
+// Per-role tool whitelist (least privilege). Roles that need MCP tool access
+// (co-explorer, co-oracle, co-council) use disallowedTools instead — see below.
 const TOOL_WHITELIST: Record<string, string[]> = {
-  "co-explorer": ["Read", "Grep", "Glob", "Bash"],
   "co-observer": ["Read", "Glob"],
   "co-rule-user": ["Read", "Grep", "Glob"],
   "co-rule-project": ["Read", "Grep", "Glob"],
   "co-rule-app": ["Read", "Grep", "Glob"],
-  "co-oracle": ["Read", "Grep", "Glob", "WebFetch", "WebSearch", "Bash"],
   "co-planner": ["Read", "Grep", "Glob", "WebFetch", "WebSearch"],
   "co-librarian": ["Read", "Grep", "Glob", "WebFetch", "WebSearch"],
   "co-designer": ["Read", "Edit", "Write", "Glob", "Grep"],
   "co-fixer": ["Read", "Edit", "Write", "Glob", "Grep", "Bash", "TodoWrite"],
 };
 
-// Roles with no `tools` field at all: they inherit every tool. co-council must
-// keep full access so it can call MCP tools such as co_council.
-const NO_TOOLS_FIELD = new Set(["co-council"]);
+// Roles with no `tools` field at all: they inherit every tool — including MCP
+// tools. A whitelist only ever matches built-in names, so any role behind a
+// `tools` list cannot see `co_delegate`, `co_council`, `co_close_job`, or the
+// new `co_scan`. Roles that need MCP tool access (co-explorer, co-oracle,
+// co-council) therefore skip the whitelist and use `disallowedTools` instead.
+// The plugin's own MCP tools are all read-only or harmless, so inheriting them
+// is safe for these roles.
+const NO_TOOLS_FIELD = new Set(["co-council", "co-explorer", "co-oracle"]);
 
-// Roles that inherit every tool but must blacklist the mutating ones. Listing a
-// tool whitelist would be the cleaner way to express this, except that it would
-// also hide MCP tools (a whitelist only ever matches built-in names). So
-// co-council stays whitelist-free and instead disallows everything that writes
-// or spawns: it is read-only by contract (its own body says so), and the ZCode
-// parser and Settings UI both honour `disallowedTools`.
+// Roles that inherit every tool but must blacklist the mutating ones. The
+// ZCode parser and Settings UI both honour `disallowedTools`.
 const DISALLOWED_TOOLS: Record<string, string[]> = {
+  // co-council / co-explorer / co-oracle are read-only by contract; deny
+  // everything that writes, spawns, or mutates.
   "co-council": ["Write", "Edit", "ApplyPatch", "Bash", "Agent", "Task"],
+  "co-explorer": ["Write", "Edit", "ApplyPatch", "Agent", "Task"],
+  "co-oracle": ["Write", "Edit", "ApplyPatch", "Agent", "Task"],
 };
 
 interface AgentTemplate {

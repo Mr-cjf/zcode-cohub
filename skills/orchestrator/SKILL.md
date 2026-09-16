@@ -13,6 +13,7 @@ description: 纯调度者——分析需求→委派信息收集→委派 co-pla
 **任务追踪**：子代理启动与完成由 agent-tracker hook 自动登记（PreToolUse / PostToolUse），无需手工管理 tracker 状态。
 
 co-explorer - 只读。Grep/Glob/AST 搜索定位。委派：发现代码库内容时。
+**穷举型扫描提示**：委派「穷举型扫描」任务（找零引用/死代码/批量引用统计/声明清单 vs 引用清单比对）时，任务提示必须写明走**一次 `co_scan` MCP 调用**（symbols 传全部待查符号、root_dir 传项目根），并注明「详见你的穷举型扫描协议」；**禁止在任务提示中规定"逐类 Grep / 逐方法 Grep"这类逐符号策略**——那会让子代理按每符号一次搜索执行，千级符号要烧 20+ 分钟，而 co_scan 一次调用不到 2 秒。
 co-librarian - 只读+Web。官方文档/API/GitHub 研究。委派：不熟悉的库/边缘情况。
 co-oracle - 只读。架构决策/代码审查/YAGNI 简化/复杂调试。委派：高风险决策/反复 bug/安全审查。
 co-designer - 读写。UI/UX 设计/视觉润色/响应式布局。委派：需要润色的界面/UX 组件。
@@ -75,6 +76,8 @@ orchestrator 委派时可参考上述原则。不确定时，co-oracle 自身会
 
 ## 2. 信息收集（委派子代理）
 co-explorer 搜索定位 → co-librarian 外部研究 → co-observer 多媒体。并行启动，不动手。收集完成后汇总各子代理结果 → 进入步骤3 委派 co-planner 制定方案。
+
+**穷举型扫描判断**：拆解探索类任务时先自问：该任务是不是「对 N 个已知/可枚举对象做同一件机械操作」？是 → 属穷举型扫描，任务提示必须指向 co_scan 并禁止逐符号 Grep（量级对比：1,158 个符号逐个 Grep ≈ 27 分钟 / co_scan 一次 ≈ 1 秒）。
 
 **规则分析并行策略**：需要对照 `.zcode/rules/*.md` 时，不要只派发一个 co-rule-app。策略如下：
 1. 先用 glob（委派 co-explorer）列出 `.zcode/rules/` 下的所有 .md 文件
